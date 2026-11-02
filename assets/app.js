@@ -1021,6 +1021,25 @@
     }).join("");
   }
 
+  function syncAIModels(draft) {
+    return AI.listModels().then(function (models) {
+      if (!models.length) return;
+      els.aiModelList.innerHTML = models.slice(0, 300).map(function (model) {
+        return '<option value="' + escapeHTML(model) + '"></option>';
+      }).join("");
+      const current = String(draft.model || "");
+      const known = models.some(function (model) { return model === current; });
+      if (known) return;
+      const guess = models.find(function (model) {
+        return /flash|mini|small|turbo|air|lite/i.test(model);
+      }) || models[0];
+      if (!guess) return;
+      els.aiModel.value = guess;
+      AI.saveConfig({ model: guess });
+      els.aiTestResult.textContent += " · 当前 Key 里没有「" + current + "」，已换成 " + guess;
+    });
+  }
+
   function openAISettings() {
     const config = AI.getConfig();
     renderAIProviders(config.provider);
@@ -1389,6 +1408,7 @@
       AI.testConnection().then(function (result) {
         els.aiTestResult.className = "ai-test-result is-ok";
         els.aiTestResult.textContent = "连上了 · " + (result.reply || "模型有回应");
+        return syncAIModels(draft);
       }).catch(function (error) {
         els.aiTestResult.className = "ai-test-result is-bad";
         els.aiTestResult.textContent = aiErrorMessage(error);

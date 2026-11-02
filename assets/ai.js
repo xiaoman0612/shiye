@@ -15,10 +15,10 @@
     {
       id: "deepseek",
       label: "DeepSeek",
-      baseUrl: "https://api.deepseek.com/v1",
-      model: "deepseek-chat",
-      models: ["deepseek-chat", "deepseek-reasoner"],
-      note: "便宜、中文稳，推荐先试。"
+      baseUrl: "https://api.deepseek.com",
+      model: "deepseek-flash",
+      models: ["deepseek-flash", "deepseek-v4-pro"],
+      note: "便宜、中文稳，推荐先试。旧名 deepseek-chat 已于 2026-07 下线。"
     },
     {
       id: "moonshot",
@@ -116,8 +116,8 @@
 
   const DEFAULT_CONFIG = {
     provider: "deepseek",
-    baseUrl: "https://api.deepseek.com/v1",
-    model: "deepseek-chat",
+    baseUrl: "https://api.deepseek.com",
+    model: "deepseek-flash",
     key: "",
     temperature: 0.6,
     count: 6,
@@ -338,6 +338,44 @@
     return base + "/chat/completions";
   }
 
+  /* DeepSeek 默认开启思考模式（会先吐一大段思维链，按输出计费且更慢）。
+     找书这种任务不需要长推理，直接关掉，省钱也更快。 */
+  function isDeepSeek(config) {
+    const id = String(config && config.provider || "");
+    const url = String(config && config.baseUrl || "");
+    return id === "deepseek" || /api\.deepseek\.com/i.test(url);
+  }
+
+  function modelsEndpointOf(baseUrl) {
+    const base = String(baseUrl || "").trim().replace(/\/+$/, "");
+    if (!base) return "";
+    return base.replace(/\/chat\/completions$/, "") + "/models";
+  }
+
+  function listModels() {
+    const config = getConfig();
+    if (!isConfigured(config)) return Promise.resolve([]);
+    const controller = new AbortController();
+    const timer = global.setTimeout(function () { controller.abort(); }, 15000);
+    return fetch(modelsEndpointOf(config.baseUrl), {
+      method: "GET",
+      headers: { Authorization: "Bearer " + config.key },
+      signal: controller.signal
+    }).then(function (response) {
+      global.clearTimeout(timer);
+      if (!response.ok) return [];
+      return response.json();
+    }).then(function (body) {
+      const rows = body && (Array.isArray(body.data) ? body.data : (Array.isArray(body.models) ? body.models : []));
+      return rows.map(function (row) {
+        return String(row && (row.id || row.name || row.model) || "").trim();
+      }).filter(Boolean);
+    }).catch(function () {
+      global.clearTimeout(timer);
+      return [];
+    });
+  }
+
   function describeError(status, body) {
     let detail = "";
     try {
@@ -480,6 +518,7 @@
         { role: "user", content: buildUserPrompt(Object.assign({}, request, { count: count })) }
       ]
     };
+    if (isDeepSeek(config)) payload.thinking = { type: "disabled" };
 
     let raw = "";
     let closed = false;
@@ -659,12 +698,12 @@
         "Content-Type": "application/json",
         Authorization: "Bearer " + config.key
       },
-      body: JSON.stringify({
+      body: JSON.stringify(Object.assign({
         model: config.model,
         stream: false,
         max_tokens: 16,
         messages: [{ role: "user", content: "只回答两个字：在的" }]
-      }),
+      }, isDeepSeek(config) ? { thinking: { type: "disabled" } } : {})),
       signal: controller.signal
     }).then(async function (response) {
       global.clearTimeout(timer);
@@ -681,7 +720,9 @@
       const parsed = extractJson(text);
       const reply = parsed && parsed.choices && parsed.choices[0] &&
         (parsed.choices[0].message && parsed.choices[0].message.content);
-      return { ok: true, reply: clean(reply, 40) || "已连通" };
+      const cleaned = clean(reply, 40) || "";
+      const readable = /^[[{]/.test(cleaned) ? "" : cleaned;
+      return { ok: true, reply: readable || "模型有回应" };
     }).catch(function (error) {
       global.clearTimeout(timer);
       if (error && error.code) throw error;
@@ -700,6 +741,7 @@
     clearConfig: clearConfig,
     isConfigured: isConfigured,
     testConnection: testConnection,
+    listModels: listModels,
     search: search,
     getBook: function (id) {
       return bookStore.get(id) || null;
