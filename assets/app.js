@@ -3,6 +3,7 @@
 
   const Engine = window.NovelEngine;
   const DATA = window.NOVEL_DATA;
+  const AI = window.ShiyeAI;
   const STORAGE_KEY = "shiye-shelf-v1";
   const THEME_KEY = "shiye-theme";
 
@@ -49,6 +50,19 @@
     toastTimer: null
   };
 
+  const aiState = {
+    enabled: false,
+    configured: false,
+    busy: false,
+    books: [],
+    error: null,
+    meta: "",
+    statusText: "",
+    handle: null,
+    lastRequest: null,
+    dirty: false
+  };
+
   const els = {
     query: $("#query"),
     searchForm: $("#searchForm"),
@@ -90,10 +104,46 @@
     dailyDate: $("#dailyDate"),
     dailyOpen: $("#dailyOpen"),
     themeToggle: $("#themeToggle"),
-    toast: $("#toast")
+    toast: $("#toast"),
+    aiResults: $("#aiResults"),
+    aiResultsTitle: $("#aiResultsTitle"),
+    aiMeta: $("#aiMeta"),
+    aiGrid: $("#aiGrid"),
+    aiStatus: $("#aiStatus"),
+    aiStatusText: $("#aiStatusText"),
+    aiStop: $("#aiStop"),
+    aiAgain: $("#aiAgain"),
+    aiClose: $("#aiClose"),
+    aiDisclaimer: $("#aiDisclaimer"),
+    aiToggle: $("#aiToggle"),
+    aiToggleHint: $("#aiToggleHint"),
+    aiModelChip: $("#aiModelChip"),
+    aiOpenSettings: $("#aiOpenSettings"),
+    openAI: $("#openAI"),
+    heroAI: $("#heroAI"),
+    aiDialog: $("#aiDialog"),
+    aiForm: $("#aiForm"),
+    aiProviders: $("#aiProviders"),
+    aiBaseUrl: $("#aiBaseUrl"),
+    aiBaseHint: $("#aiBaseHint"),
+    aiModel: $("#aiModel"),
+    aiModelList: $("#aiModelList"),
+    aiKey: $("#aiKey"),
+    aiCount: $("#aiCount"),
+    aiCountValue: $("#aiCountValue"),
+    aiTemp: $("#aiTemp"),
+    aiTempValue: $("#aiTempValue"),
+    aiTest: $("#aiTest"),
+    aiTestResult: $("#aiTestResult"),
+    aiForget: $("#aiForget")
   };
 
   const dailyBook = Engine.getDaily(new Date());
+
+  // 编辑书库优先；模型现场找到的书存在 ShiyeAI 里，两处都能被同一个 id 解析。
+  function bookById(id) {
+    return Engine.getBook(id) || (AI ? AI.getBook(id) : null);
+  }
 
   function escapeHTML(value) {
     return String(value == null ? "" : value).replace(/[&<>"']/g, function (character) {
@@ -114,7 +164,7 @@
       const parsed = JSON.parse(raw);
       if (!Array.isArray(parsed)) return [];
       return Array.from(new Set(parsed.filter(function (id) {
-        return typeof id === "string" && Boolean(Engine.getBook(id));
+        return typeof id === "string" && Boolean(bookById(id));
       })));
     } catch (error) {
       return [];
@@ -135,7 +185,7 @@
 
   function getSavedBooks() {
     return state.saved.map(function (id) {
-      return Engine.getBook(id);
+      return bookById(id);
     }).filter(Boolean);
   }
 
@@ -156,7 +206,7 @@
       '<div class="cover-title"><span class="cover-rule"></span>',
       '<span class="cover-title-text">' + escapeHTML(book.title) + "</span>",
       '<span class="cover-author">' + escapeHTML(book.author) + " 著</span></div>",
-      '<span class="cover-index">NO.' + String(book.index + 1).padStart(2, "0") + "</span>",
+      book.ai ? "" : '<span class="cover-index">NO.' + String(book.index + 1).padStart(2, "0") + "</span>",
       "</div>"
     ].join("");
   }
@@ -520,11 +570,23 @@
     const links = Engine.getLinks(book);
     const similar = Engine.getSimilar(book.id, 3);
     const entry = resultForBook(book.id);
+    const isAI = Boolean(book.ai);
     const scoreLabels = ["设定", "人物", "节奏", "文字", "后劲"];
-    const bars = book.scores.map(function (score, index) {
+    const scores = Array.isArray(book.scores) ? book.scores : [];
+    const bars = scores.map(function (score, index) {
       return '<div class="score-bar-row"><span>' + scoreLabels[index] + '</span><div class="score-bar-track"><div class="score-bar-fill" style="width:' +
         (score * 10) + '%"></div></div><strong>' + score.toFixed(1) + "</strong></div>";
     }).join("");
+
+    const aiNote = isAI
+      ? '<div class="ai-callout"><div class="ai-callout-head"><span class="ai-pill">' +
+        escapeHTML(book.confidenceLabel || "模型生成") + "</span><strong>未经拾页核实</strong></div><p>这本书由 " +
+        escapeHTML(AI ? AI.getConfig().model : "大模型") + " 现场推荐，拾页编辑没有读过它；" +
+        (book.note ? "模型自述：" + escapeHTML(book.note) + "；" : "") +
+        "请点下方「豆瓣读书」核对书名与作者，再决定要不要花时间。" +
+        (book.query ? "本次检索诉求：「" + escapeHTML(book.query) + "」" : "") + "</p>" +
+        '<button class="link-button" type="button" data-forget-book="' + escapeHTML(book.aiId || book.id) + '">不再保留这条推荐</button></div>'
+      : "";
 
     const similarHTML = similar.length
       ? '<div class="similar-grid">' + similar.map(function (item) {
@@ -532,7 +594,7 @@
           '<span class="similar-cover" style="' + coverStyle(item) + '"><span>' + escapeHTML(item.mark) + "</span></span>" +
           '<span class="similar-text"><strong>' + escapeHTML(item.title) + "</strong><span>" + escapeHTML(item.kindLabel) + " · " + item.score.toFixed(1) + "</span></span></button>";
       }).join("") + "</div>"
-      : '<p class="resource-note">书库里暂时没有足够相近的作品。</p>';
+      : '<p class="resource-note">' + (isAI ? "这是模型现场推荐的书，书库里暂时算不出相近条目。" : "书库里暂时没有足够相近的作品。") + "</p>";
 
     return [
       '<div class="modal-book" style="' + coverStyle(book) + '">',
@@ -541,19 +603,22 @@
       '<p class="modal-visual-caption"><span>拾页签</span>「' + escapeHTML(book.mood[0]) + "」<br>" + escapeHTML(book.mood[1]) + " · " + escapeHTML(book.mood[2]) + "</p>",
       '<div class="modal-visual-meta"><span>' + escapeHTML(book.kindLabel) + "</span><span>" + escapeHTML(book.statusLabel) +
         "</span><span>" + escapeHTML(book.lengthLabel) + "</span></div>",
-      '<div class="modal-visual-footer"><span>SHIYE READING ROOM</span><span>NO.' + String(book.index + 1).padStart(2, "0") + "</span></div>",
+      '<div class="modal-visual-footer"><span>SHIYE READING ROOM</span><span>' +
+        (isAI ? "MODEL PICK" : "NO." + String(book.index + 1).padStart(2, "0")) + "</span></div>",
       "</div>",
       '<div class="modal-book-content">',
       '<div class="modal-kicker"><span class="kind-pill">' + escapeHTML(book.kindLabel) + "</span>" +
+        (isAI ? '<span class="ai-pill">AI 现场推荐</span>' : "") +
         (entry && entry.match ? '<span class="match-pill">' + formatMatch(entry.match) + "</span>" : "") +
         '<span class="meta-inline">' + escapeHTML(book.year) + " · " + escapeHTML(book.platform) + "</span></div>",
       '<h2 class="modal-title" id="bookModalTitle">' + escapeHTML(book.title) + "</h2>",
       '<p class="modal-author">' + escapeHTML(book.author) + (book.words ? " · " + escapeHTML(book.words) : "") + "</p>",
       '<p class="modal-summary">' + escapeHTML(book.summary) + "</p>",
       '<p class="modal-hook">' + escapeHTML(book.hook) + "</p>",
-      '<section class="modal-section"><div class="modal-section-heading"><div><p class="eyebrow">EDITOR\'S REVIEW</p><h3>拾页编辑评</h3></div><div class="modal-score"><strong>' +
-        book.score.toFixed(1) + '</strong><span>/ 10</span></div></div><p class="modal-review">' + escapeHTML(book.review) + "</p>" +
-        '<div class="score-bars">' + bars + "</div>" +
+      '<section class="modal-section"><div class="modal-section-heading"><div><p class="eyebrow">' + (isAI ? "MODEL'S TAKE" : "EDITOR'S REVIEW") + "</p><h3>" + (isAI ? "模型推荐理由" : "拾页编辑评") + "</h3></div>" +
+        (book.score == null ? "" : '<div class="modal-score"><strong>' + book.score.toFixed(1) + '</strong><span>/ 10</span></div>') +
+        '</div>' + aiNote + '<p class="modal-review">' + escapeHTML(book.review) + "</p>" +
+        (bars ? '<div class="score-bars">' + bars + "</div>" : "") +
         '<div class="review-columns modal-review-columns"><div class="review-column"><h4>值得</h4><ul>' +
         book.pros.map(function (pro) { return "<li>" + escapeHTML(pro) + "</li>"; }).join("") +
         '</ul></div><div class="review-column cons"><h4>留意</h4><ul>' +
@@ -563,7 +628,7 @@
           return '<span class="mood-chip">' + escapeHTML(mood) + "</span>";
         }).join("") + "</div>" +
         (book.contentNote ? '<div class="content-note"><strong>内容提示</strong><span>' + escapeHTML(book.contentNote) + "</span></div>" : "") +
-        '<p class="resource-note">评分与书评为拾页编辑视角，非豆瓣或平台官方评分。读者评价可点开豆瓣读书继续看。</p></section>',
+        '<p class="resource-note">' + (isAI ? "以上入口是按书名生成的平台站内搜索，用来核对这本书是否真实存在。" : "评分与书评为拾页编辑视角，非豆瓣或平台官方评分。读者评价可点开豆瓣读书继续看。") + "</p></section>",
       '<section class="modal-section"><div class="modal-section-heading"><div><p class="eyebrow">WHERE TO READ</p><h3>正版阅读与延伸</h3></div></div>' +
         '<div class="resource-grid">' + links.map(function (link) { return resourceLinkHTML(link, false); }).join("") + "</div>" +
         '<p class="resource-note">入口为各平台站内搜索页；版权、库存与连载状态以平台为准。拾页不提供盗版下载。</p></section>',
@@ -578,7 +643,7 @@
   }
 
   function openBook(id, trigger) {
-    const book = Engine.getBook(id);
+    const book = bookById(id);
     if (!book) return;
 
     state.activeBookId = id;
@@ -624,10 +689,13 @@
     }
 
     els.shelfBody.innerHTML = '<div class="shelf-list">' + books.map(function (book) {
+      const meta = book.score == null
+        ? escapeHTML(book.confidenceLabel || "AI 推荐") + " · 未核实"
+        : book.score.toFixed(1);
       return '<article class="shelf-item"><div class="shelf-cover" style="' + coverStyle(book) + '"><span>' + escapeHTML(book.mark) +
         "</span></div><div><h3>" + escapeHTML(book.title) + "</h3><p>" + escapeHTML(book.author) + " · " + escapeHTML(book.kindLabel) +
-        " · " + book.score.toFixed(1) + "</p></div><div class=\"shelf-actions\"><button type=\"button\" data-open-book=\"" +
-        escapeHTML(book.id) + "\">查看</button><button type=\"button\" data-remove-saved=\"" + escapeHTML(book.id) +
+        " · " + meta + '</p></div><div class="shelf-actions"><button type="button" data-open-book="' +
+        escapeHTML(book.id) + '">查看</button><button type="button" data-remove-saved="' + escapeHTML(book.id) +
         "\">移出</button></div></article>";
     }).join("") + "</div>";
   }
@@ -660,7 +728,7 @@
       button.setAttribute("aria-pressed", String(saved));
       const label = $(".save-label", button);
       if (label) label.textContent = saved ? "已存入书架" : "存入书架";
-      const book = Engine.getBook(id);
+      const book = bookById(id);
       if (book) {
         button.setAttribute("aria-label", saved ? "将《" + book.title + "》移出书架" : "将《" + book.title + "》存入书架");
       }
@@ -669,7 +737,7 @@
   }
 
   function toggleSave(id) {
-    const book = Engine.getBook(id);
+    const book = bookById(id);
     if (!book) return;
     if (isSaved(id)) {
       state.saved = state.saved.filter(function (savedId) { return savedId !== id; });
@@ -693,12 +761,14 @@
   }
 
   async function copyBook(id, trigger) {
-    const book = Engine.getBook(id);
+    const book = bookById(id);
     if (!book) return;
     const text = [
       "《" + book.title + "》 / " + book.author,
       book.hook,
-      "拾页评分 " + book.score.toFixed(1) + "/10 · " + book.kindLabel + " · " + book.statusLabel,
+      book.score == null
+        ? "AI 现场推荐 · 未经核实，读前请先核对作者与书名"
+        : "拾页评分 " + book.score.toFixed(1) + "/10 · " + book.kindLabel + " · " + book.statusLabel,
       "书评与正版资源：拾页 · 小说推荐工具"
     ].join("\n");
 
@@ -733,9 +803,282 @@
     }
   }
 
+  /* ---------------- AI 实时找书 ---------------- */
+
+  let aiProviderDraft = "deepseek";
+
+  function plain(value) {
+    return String(value == null ? "" : value).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+  }
+
+  function findEditorial(title, author) {
+    const target = plain(title);
+    if (!target) return null;
+    const books = Engine.getBooks();
+    const exact = books.find(function (book) { return plain(book.title) === target; });
+    if (exact) return exact;
+    return books.find(function (book) {
+      return plain(book.title).indexOf(target) === 0 && author && plain(book.author) === plain(author);
+    }) || null;
+  }
+
+  function aiErrorMessage(error) {
+    const message = (error && error.message) || "检索失败";
+    const hint = (error && error.hint) || "";
+    return hint ? message + " · " + hint : message;
+  }
+
+  function aiCardHTML(book, index) {
+    const links = Engine.getLinks(book);
+    const review = links.find(function (link) { return link.type === "review"; });
+    const read = links.find(function (link) { return link.type === "read"; });
+    const tags = (book.tags || []).slice(0, 4).map(function (tag) {
+      return '<span class="ai-card-tag">' + escapeHTML(tag) + "</span>";
+    }).join("");
+    const metaBits = [book.kindLabel, book.statusLabel, book.lengthLabel, book.year].filter(Boolean);
+
+    return [
+      '<article class="ai-card" style="--i:' + index + ";" + coverStyle(book) + '">',
+      '<div class="ai-card-cover">' + coverHTML(book, true) + "</div>",
+      '<div class="ai-card-main">',
+      '<div class="ai-card-top"><span class="ai-pill">模型生成</span>',
+      '<span class="ai-confidence ' + escapeHTML(book.confidence || "medium") + '">' + escapeHTML(book.confidenceLabel || "") + "</span>",
+      '<span class="ai-card-meta">' + escapeHTML(metaBits.join(" · ")) + "</span></div>",
+      '<h3 class="ai-card-title"><button type="button" data-open-book="' + escapeHTML(book.id) + '">' + escapeHTML(book.title) + "</button></h3>",
+      '<p class="ai-card-author">' + escapeHTML(book.author) + (book.platform ? " · " + escapeHTML(book.platform) : "") + "</p>",
+      '<p class="ai-card-why">' + escapeHTML(book.review || book.hook || book.summary || "") + "</p>",
+      tags ? '<div class="ai-card-tags">' + tags + "</div>" : "",
+      '<div class="ai-card-actions">',
+      review ? '<a class="resource-link" href="' + escapeHTML(review.url) + '" target="_blank" rel="noopener noreferrer">' + ICONS.review + "<span>豆瓣核对</span></a>" : "",
+      read ? '<a class="resource-link" href="' + escapeHTML(read.url) + '" target="_blank" rel="noopener noreferrer">' + ICONS.read + "<span>去找这本</span></a>" : "",
+      saveButtonHTML(book, true),
+      "</div>",
+      "</div>",
+      "</article>"
+    ].join("");
+  }
+
+  function showAIStatus(text, options) {
+    const opts = options || {};
+    els.aiResults.hidden = false;
+    els.aiStatus.hidden = false;
+    els.aiStatus.classList.toggle("is-error", Boolean(opts.error));
+    els.aiStatusText.textContent = text;
+    els.aiStop.hidden = !aiState.busy;
+  }
+
+  function hideAIStatus() {
+    els.aiStatus.hidden = true;
+    els.aiStatus.classList.remove("is-error");
+    els.aiStop.hidden = true;
+  }
+
+  function renderAIResults() {
+    const hasBooks = aiState.books.length > 0;
+    els.aiResults.hidden = !(hasBooks || aiState.busy || Boolean(aiState.error));
+    els.aiGrid.innerHTML = aiState.books.map(aiCardHTML).join("");
+    els.aiMeta.textContent = aiState.meta;
+    els.aiAgain.hidden = !hasBooks;
+    els.aiAgain.disabled = aiState.busy;
+    els.aiClose.hidden = !(hasBooks || Boolean(aiState.error));
+    els.aiDisclaimer.hidden = !hasBooks;
+    syncSaveButtons();
+  }
+
+  function stopAISearch() {
+    if (aiState.handle) {
+      try {
+        aiState.handle.abort();
+      } catch (error) {
+        // ignore
+      }
+    }
+    aiState.handle = null;
+    aiState.busy = false;
+  }
+
+  function collapseAI() {
+    stopAISearch();
+    aiState.books = [];
+    aiState.error = null;
+    aiState.meta = "";
+    els.aiGrid.innerHTML = "";
+    els.aiMeta.textContent = "";
+    hideAIStatus();
+    els.aiResults.hidden = true;
+  }
+
+  function startAISearch(options) {
+    const opts = options || {};
+    if (!aiState.enabled) return;
+    if (!state.query && !state.chips.size) return;
+    if (aiState.busy) {
+      if (!opts.force) return;
+      stopAISearch();
+    }
+
+    const config = AI.getConfig();
+    const request = {
+      query: state.query,
+      chips: Array.from(state.chips).map(function (id) {
+        const chip = Engine.QUICK_CHIPS.find(function (item) { return item.id === id; });
+        return chip ? chip.label : id;
+      }),
+      kind: state.kind,
+      status: state.status,
+      length: state.length,
+      exclude: (state.parsed && state.parsed.exclusions) ? state.parsed.exclusions.map(function (item) {
+        return item.label || item.id || "";
+      }).filter(Boolean) : [],
+      avoid: state.results.slice(0, 10).map(function (entry) { return entry.book.title; })
+        .concat(aiState.books.map(function (book) { return book.title; })),
+      count: config.count,
+      temperature: config.temperature + (opts.force ? 0.2 : 0),
+      force: Boolean(opts.force),
+      findEditorial: findEditorial
+    };
+
+    aiState.lastRequest = request;
+    aiState.error = null;
+    aiState.busy = true;
+    aiState.meta = "";
+    if (!opts.keep) aiState.books = [];
+    renderAIResults();
+    showAIStatus("正在把诉求交给 " + config.model + " …");
+
+    aiState.handle = AI.search(request, {
+      onStatus: function (text) {
+        if (!aiState.busy) return;
+        showAIStatus(text);
+      },
+      onDelta: function (piece, raw) {
+        if (!aiState.busy) return;
+        showAIStatus("模型正在写书单… 已收到 " + String(raw.length) + " 字");
+      },
+      onDone: function (result) {
+        aiState.busy = false;
+        aiState.handle = null;
+        aiState.books = result.books || [];
+        aiState.meta = [
+          result.model,
+          (result.elapsed / 1000).toFixed(1) + " 秒",
+          AI.dateStamp(),
+          result.cached ? "上次结果" : ""
+        ].filter(Boolean).join(" · ");
+        hideAIStatus();
+        renderAIResults();
+      },
+      onError: function (error) {
+        aiState.busy = false;
+        aiState.handle = null;
+        aiState.error = error || { message: "检索失败" };
+        aiState.meta = "";
+        renderAIResults();
+        showAIStatus(aiErrorMessage(aiState.error), { error: true });
+        if (aiState.error.code === "config" || aiState.error.code === "auth") {
+          showToast("模型没接通，点「设置」补一下 Key");
+        }
+      }
+    });
+  }
+
+  function syncAIBar() {
+    const config = AI ? AI.getConfig() : null;
+    aiState.configured = Boolean(config && AI.isConfigured(config));
+    aiState.enabled = aiState.configured && Boolean(config.enabled);
+    els.aiToggle.setAttribute("aria-pressed", String(aiState.enabled));
+    els.aiToggle.classList.toggle("is-on", aiState.enabled);
+    els.aiModelChip.textContent = aiState.configured ? config.model : "未接入模型";
+    els.aiModelChip.classList.toggle("is-live", aiState.configured);
+    els.aiToggleHint.textContent = !aiState.configured
+      ? "未接入模型 · 搜索时让大模型现场再找一遍"
+      : (aiState.enabled
+        ? "已接入 " + config.model + " · 搜索时同时问一次模型"
+        : "已接入 " + config.model + " · 当前关闭");
+  }
+
+  function updateAIRanges() {
+    els.aiCountValue.textContent = els.aiCount.value;
+    els.aiTempValue.textContent = Number(els.aiTemp.value).toFixed(1);
+  }
+
+  function renderAIProviders(activeId) {
+    aiProviderDraft = activeId || "deepseek";
+    els.aiProviders.innerHTML = AI.PROVIDERS.map(function (provider) {
+      return '<button class="chip" type="button" data-provider="' + escapeHTML(provider.id) + '" aria-pressed="' +
+        String(provider.id === aiProviderDraft) + '">' + escapeHTML(provider.label) + "</button>";
+    }).join("");
+    applyProviderHint();
+  }
+
+  function applyProviderHint() {
+    const provider = AI.PROVIDER_BY_ID(aiProviderDraft);
+    if (!provider) return;
+    els.aiBaseHint.innerHTML = "请求会发往 <code>" + escapeHTML(AI.endpointOf(provider.baseUrl || "https://…")) +
+      "</code>。" + escapeHTML(provider.note || "");
+    els.aiModelList.innerHTML = (provider.models || []).map(function (model) {
+      return '<option value="' + escapeHTML(model) + '"></option>';
+    }).join("");
+  }
+
+  function openAISettings() {
+    const config = AI.getConfig();
+    renderAIProviders(config.provider);
+    els.aiBaseUrl.value = config.baseUrl || "";
+    els.aiModel.value = config.model || "";
+    els.aiKey.value = config.key || "";
+    els.aiCount.value = String(config.count || 6);
+    els.aiTemp.value = String(config.temperature == null ? 0.6 : config.temperature);
+    updateAIRanges();
+    els.aiTestResult.textContent = "";
+    els.aiTestResult.className = "ai-test-result";
+    els.aiForget.hidden = !config.key;
+    if (!els.aiDialog.open) els.aiDialog.showModal();
+    document.body.classList.add("is-locked");
+  }
+
+  function readAIDraft() {
+    const provider = AI.PROVIDER_BY_ID(aiProviderDraft);
+    return {
+      provider: aiProviderDraft,
+      baseUrl: (els.aiBaseUrl.value.trim() || (provider && provider.baseUrl) || ""),
+      model: (els.aiModel.value.trim() || (provider && provider.model) || ""),
+      key: els.aiKey.value.trim(),
+      count: Number(els.aiCount.value) || 6,
+      temperature: Number(els.aiTemp.value) || 0.6
+    };
+  }
+
+  function aiToggleFlow() {
+    if (!aiState.configured) {
+      openAISettings();
+      showToast("先填一个 API Key，模型才能替你找书");
+      return;
+    }
+    const next = !aiState.enabled;
+    AI.saveConfig({ enabled: next });
+    syncAIBar();
+    showToast(next ? "AI 实时找书已开启" : "AI 实时找书已关闭");
+    if (next && (state.query || state.chips.size)) startAISearch({});
+  }
+
+  function aiFocusEntry(trigger) {
+    const target = $("#matcher");
+    if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
+    window.setTimeout(function () {
+      if (els.query) els.query.focus({ preventScroll: true });
+    }, 320);
+    if (!aiState.configured) {
+      window.setTimeout(function () {
+        if (!aiState.configured) openAISettings();
+      }, 520);
+    }
+  }
+
   function scrollToResults() {
-    if (!els.results) return;
-    els.results.scrollIntoView({ behavior: "smooth", block: "start" });
+    const target = (els.aiResults && !els.aiResults.hidden) ? els.aiResults : els.results;
+    if (!target) return;
+    target.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   function commitQuery() {
@@ -752,6 +1095,11 @@
       if (state.parsed.kind) state.kind = state.parsed.kind;
     }
     render();
+    if (opts.ai) {
+      startAISearch({ force: Boolean(opts.force) });
+    } else {
+      collapseAI();
+    }
     if (opts.scroll) scrollToResults();
   }
 
@@ -808,7 +1156,7 @@
   function openFromHash() {
     if (window.location.hash.indexOf("#book=") !== 0) return;
     const id = decodeURIComponent(window.location.hash.slice(6));
-    if (Engine.getBook(id)) {
+    if (bookById(id)) {
       openBook(id, null);
     }
   }
@@ -816,7 +1164,7 @@
   function bindEvents() {
     els.searchForm.addEventListener("submit", function (event) {
       event.preventDefault();
-      runSearch({ syncMeta: true, scroll: true });
+      runSearch({ syncMeta: true, scroll: true, ai: true });
     });
 
     els.query.addEventListener("input", function () {
@@ -955,6 +1303,15 @@
         return;
       }
 
+      const forgetButton = event.target.closest("[data-forget-book]");
+      if (forgetButton) {
+        event.preventDefault();
+        if (AI) AI.forgetBook(forgetButton.dataset.forgetBook);
+        if (els.bookDialog.open) closeDialog(els.bookDialog);
+        showToast("已从本地缓存里删掉这条推荐");
+        return;
+      }
+
       const opener = event.target.closest("[data-open-book]");
       if (opener) {
         event.preventDefault();
@@ -967,7 +1324,8 @@
       }
     });
 
-    [els.bookDialog, els.shelfDialog, els.aboutDialog].forEach(function (dialog) {
+    [els.bookDialog, els.shelfDialog, els.aboutDialog, els.aiDialog].forEach(function (dialog) {
+      if (!dialog) return;
       dialog.addEventListener("click", function (event) {
         if (event.target === dialog) closeDialog(dialog);
       });
@@ -993,6 +1351,74 @@
         els.query.focus();
       }
     });
+
+    /* ---- AI 实时找书 ---- */
+    els.openAI.addEventListener("click", function () { aiFocusEntry(els.openAI); });
+    if (els.heroAI) els.heroAI.addEventListener("click", function () { aiFocusEntry(els.heroAI); });
+    els.aiToggle.addEventListener("click", aiToggleFlow);
+    els.aiOpenSettings.addEventListener("click", openAISettings);
+    els.aiClose.addEventListener("click", function () {
+      collapseAI();
+      showToast("已收起模型结果");
+    });
+    els.aiAgain.addEventListener("click", function () {
+      startAISearch({ force: true, keep: true });
+    });
+    els.aiStop.addEventListener("click", function () {
+      stopAISearch();
+      hideAIStatus();
+      showToast("已停下这次检索");
+    });
+    els.aiProviders.addEventListener("click", function (event) {
+      const button = event.target.closest("[data-provider]");
+      if (!button) return;
+      aiProviderDraft = button.dataset.provider;
+      const provider = AI.PROVIDER_BY_ID(aiProviderDraft);
+      renderAIProviders(aiProviderDraft);
+      if (provider && provider.baseUrl) els.aiBaseUrl.value = provider.baseUrl;
+      if (provider && provider.model) els.aiModel.value = provider.model;
+    });
+    els.aiCount.addEventListener("input", updateAIRanges);
+    els.aiTemp.addEventListener("input", updateAIRanges);
+    els.aiTest.addEventListener("click", function () {
+      const draft = readAIDraft();
+      AI.saveConfig(draft);
+      els.aiTest.disabled = true;
+      els.aiTestResult.className = "ai-test-result is-pending";
+      els.aiTestResult.textContent = "正在连接 " + AI.endpointOf(draft.baseUrl) + " …";
+      AI.testConnection().then(function (result) {
+        els.aiTestResult.className = "ai-test-result is-ok";
+        els.aiTestResult.textContent = "连上了 · " + (result.reply || "模型有回应");
+      }).catch(function (error) {
+        els.aiTestResult.className = "ai-test-result is-bad";
+        els.aiTestResult.textContent = aiErrorMessage(error);
+      }).then(function () {
+        els.aiTest.disabled = false;
+      });
+    });
+    els.aiForget.addEventListener("click", function () {
+      if (!window.confirm("清除后要重新填 Key，确定吗？")) return;
+      AI.clearConfig();
+      AI.clearHistory();
+      syncAIBar();
+      collapseAI();
+      openAISettings();
+      showToast("配置与本地缓存已清除");
+    });
+    els.aiForm.addEventListener("submit", function (event) {
+      event.preventDefault();
+      const draft = readAIDraft();
+      if (!draft.baseUrl || !draft.model || !draft.key) {
+        els.aiTestResult.className = "ai-test-result is-bad";
+        els.aiTestResult.textContent = "接口地址、模型、Key 三项都要填。";
+        return;
+      }
+      AI.saveConfig(Object.assign({}, draft, { enabled: true }));
+      syncAIBar();
+      closeDialog(els.aiDialog);
+      showToast(draft.model + " 已接入");
+      if (state.query || state.chips.size) startAISearch({});
+    });
   }
 
   function init() {
@@ -1013,6 +1439,7 @@
     state.bookDialogOpen = false;
     render();
     syncSaveButtons();
+    syncAIBar();
     bindEvents();
 
     if (window.location.hash) {

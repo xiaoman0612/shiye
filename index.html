@@ -33,6 +33,10 @@
       </a>
       <nav class="main-nav" aria-label="主导航">
         <button class="nav-link" type="button" data-scroll="#matcher">找书</button>
+        <button class="nav-link nav-ai" type="button" id="openAI">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m12 3 1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3ZM19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8L19 16Z"></path></svg>
+          <span>AI 找书</span>
+        </button>
         <button class="nav-link" type="button" id="openShelf">
           书架 <span class="nav-badge" id="shelfCount">0</span>
         </button>
@@ -52,11 +56,41 @@
 
   <main id="top">
     <section class="hero">
-      <div class="shell hero-grid">
-        <div class="hero-copy">
-          <p class="eyebrow"><span class="eyebrow-rule" aria-hidden="true"></span>A READER'S COMPASS / 小说推荐引擎</p>
-          <h1>把「想看什么」<br><span class="ink-accent">变成「下一本」。</span></h1>
-          <p class="hero-lede">从克苏鲁的迷雾到小镇的黄昏，从起点长篇到严肃文学。<br>说出你的口味，拾页替你把书架翻一遍。</p>
+      <div class="shell">
+        <div class="hero-grid">
+          <div class="hero-copy">
+            <p class="eyebrow"><span class="eyebrow-rule" aria-hidden="true"></span>A READER'S COMPASS / 小说推荐引擎</p>
+            <h1>把「想看什么」<br><span class="ink-accent">变成「下一本」。</span></h1>
+            <p class="hero-lede">从克苏鲁的迷雾到小镇的黄昏，从起点长篇到严肃文学。<br>说出你的口味，拾页替你把书架翻一遍。</p>
+            <button class="hero-ai-note" type="button" id="heroAI">
+              <span class="hero-ai-badge">NEW</span>
+              <span>书库只有 43 本，书海不止 —— 已接入大模型，现场再找一遍</span>
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 12h14M13 6l6 6-6 6"></path></svg>
+            </button>
+          </div>
+
+          <aside class="daily-card" aria-labelledby="dailyTitle">
+            <div class="daily-header">
+              <p class="eyebrow">EDITOR'S DRAW / 今日签</p>
+              <span class="daily-date" id="dailyDate">11.01</span>
+            </div>
+            <div class="daily-body">
+              <div class="mini-cover" id="dailyCover" aria-hidden="true"></div>
+              <div class="daily-copy">
+                <p class="daily-kicker">如果今天只读一本</p>
+                <h2 id="dailyTitle">正在翻书…</h2>
+                <p class="daily-author" id="dailyAuthor"></p>
+                <p class="daily-line" id="dailyLine"></p>
+              </div>
+            </div>
+            <div class="daily-footer">
+              <button class="text-button" type="button" id="dailyOpen">翻开这本 <span aria-hidden="true">↗</span></button>
+              <span class="daily-stamp" aria-hidden="true">拾页<br>选书</span>
+            </div>
+          </aside>
+        </div>
+
+        <div class="hero-foot">
           <div class="hero-stats" aria-label="书库统计">
             <div class="stat"><span class="stat-number" id="statBooks">43</span><span class="stat-label">本严选</span></div>
             <div class="stat"><span class="stat-number" id="statWeb">18</span><span class="stat-label">网络小说</span></div>
@@ -65,26 +99,6 @@
           </div>
           <p class="hero-note">每一本都附编辑书评、口碑关键词与正版阅读入口。</p>
         </div>
-
-        <aside class="daily-card" aria-labelledby="dailyTitle">
-          <div class="daily-header">
-            <p class="eyebrow">EDITOR'S DRAW / 今日签</p>
-            <span class="daily-date" id="dailyDate">11.01</span>
-          </div>
-          <div class="daily-body">
-            <div class="mini-cover" id="dailyCover" aria-hidden="true"></div>
-            <div class="daily-copy">
-              <p class="daily-kicker">如果今天只读一本</p>
-              <h2 id="dailyTitle">正在翻书…</h2>
-              <p class="daily-author" id="dailyAuthor"></p>
-              <p class="daily-line" id="dailyLine"></p>
-            </div>
-          </div>
-          <div class="daily-footer">
-            <button class="text-button" type="button" id="dailyOpen">翻开这本 <span aria-hidden="true">↗</span></button>
-            <span class="daily-stamp" aria-hidden="true">拾页<br>选书</span>
-          </div>
-        </aside>
       </div>
     </section>
 
@@ -117,6 +131,20 @@
           </button>
         </div>
         <p class="search-hint" id="searchHint">支持自然语言：想看点轻松的悬疑，最好短一点，不要 BE。</p>
+
+        <div class="ai-bar" id="aiBar">
+          <button class="ai-switch" type="button" id="aiToggle" aria-pressed="false">
+            <span class="ai-switch-track" aria-hidden="true"><span class="ai-switch-thumb"></span></span>
+            <span class="ai-switch-text">
+              <strong>AI 实时找书</strong>
+              <small id="aiToggleHint">未接入模型 · 搜索时让大模型现场再找一遍</small>
+            </span>
+          </button>
+          <div class="ai-bar-side">
+            <span class="ai-model-chip" id="aiModelChip">未接入模型</span>
+            <button class="link-button" type="button" id="aiOpenSettings">设置</button>
+          </div>
+        </div>
 
         <div class="quick-filter">
           <div class="quick-head">
@@ -159,6 +187,32 @@
 
         <div class="active-criteria" id="activeCriteria" hidden></div>
       </form>
+    </section>
+
+    <section class="ai-results shell" id="aiResults" aria-labelledby="aiResultsTitle" hidden>
+      <div class="ai-head">
+        <div class="ai-head-main">
+          <p class="eyebrow"><span class="ai-dot" aria-hidden="true"></span>LIVE LOOKUP / 大模型实时检索</p>
+          <h2 id="aiResultsTitle">模型刚翻到的书</h2>
+        </div>
+        <div class="ai-head-side">
+          <p class="ai-meta" id="aiMeta" aria-live="polite"></p>
+          <button class="link-button" type="button" id="aiAgain" hidden>换一批</button>
+          <button class="link-button" type="button" id="aiClose" hidden>收起</button>
+        </div>
+      </div>
+
+      <div class="ai-status" id="aiStatus" hidden>
+        <span class="ai-status-dot" aria-hidden="true"></span>
+        <p id="aiStatusText">正在检索…</p>
+        <button class="link-button" type="button" id="aiStop" hidden>停止</button>
+      </div>
+
+      <div class="ai-grid" id="aiGrid"></div>
+
+      <p class="ai-disclaimer" id="aiDisclaimer">
+        以下是模型实时生成的书目，未经拾页编辑核实 —— 入库前请点「豆瓣」核对书名与作者，别把幻觉当事实。
+      </p>
     </section>
 
     <section class="results shell" id="results" aria-labelledby="resultsTitle">
@@ -277,10 +331,72 @@
     </div>
   </dialog>
 
+  <dialog class="modal ai-settings-modal" id="aiDialog" aria-labelledby="aiSettingsTitle">
+    <div class="modal-panel ai-panel">
+      <button class="modal-close" type="button" data-close-dialog aria-label="关闭设置">
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6 6 18"></path></svg>
+      </button>
+      <div class="modal-heading">
+        <p class="eyebrow">MODEL SETTINGS</p>
+        <h2 id="aiSettingsTitle">接入你的大模型</h2>
+        <p>书库只有 43 本，书海不止。填一个 OpenAI 兼容接口，模型就会在搜索时现场翻书。</p>
+      </div>
+
+      <form class="ai-form" id="aiForm" autocomplete="off">
+        <div class="ai-field">
+          <span class="ai-field-label">服务商</span>
+          <div class="chip-list ai-provider-list" id="aiProviders" role="group" aria-label="服务商"></div>
+        </div>
+
+        <label class="ai-field">
+          <span class="ai-field-label">接口地址（Base URL）</span>
+          <input type="url" id="aiBaseUrl" spellcheck="false" placeholder="https://api.deepseek.com/v1">
+          <small id="aiBaseHint">请求会发往 <code>/chat/completions</code>。</small>
+        </label>
+
+        <label class="ai-field">
+          <span class="ai-field-label">模型</span>
+          <input type="text" id="aiModel" spellcheck="false" list="aiModelList" placeholder="deepseek-chat">
+          <datalist id="aiModelList"></datalist>
+        </label>
+
+        <label class="ai-field">
+          <span class="ai-field-label">API Key</span>
+          <input type="password" id="aiKey" spellcheck="false" autocomplete="new-password" placeholder="sk-…">
+          <small>只存在这台设备的 localStorage 里，不经过拾页服务器（本站没有服务器）。</small>
+        </label>
+
+        <div class="ai-field-row">
+          <label class="ai-field">
+            <span class="ai-field-label">每次推荐 <b id="aiCountValue">6</b> 本</span>
+            <input type="range" id="aiCount" min="3" max="10" step="1" value="6">
+          </label>
+          <label class="ai-field">
+            <span class="ai-field-label">创造性 <b id="aiTempValue">0.6</b></span>
+            <input type="range" id="aiTemp" min="0" max="1.4" step="0.1" value="0.6">
+          </label>
+        </div>
+
+        <div class="ai-test-row">
+          <button class="text-button" type="button" id="aiTest">先测一下连接</button>
+          <p class="ai-test-result" id="aiTestResult" aria-live="polite"></p>
+        </div>
+
+        <p class="ai-note">纯静态站点没有后端，请求由浏览器直连厂商。若厂商禁止跨域（CORS 报错），改填你自己的中转地址即可。</p>
+
+        <div class="ai-form-actions">
+          <button class="primary-button" type="submit">保存并启用</button>
+          <button class="link-button" type="button" id="aiForget" hidden>清除全部配置与历史</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
   <script src="assets/data.js"></script>
   <script src="assets/engine.js"></script>
+  <script src="assets/ai.js"></script>
   <script src="assets/app.js"></script>
 </body>
 </html>
