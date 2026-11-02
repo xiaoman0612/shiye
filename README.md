@@ -1,7 +1,8 @@
 # 拾页 · 小说推荐工具
 
-> 🌐 **在线访问**：https://hjb08432.github.io/shiye/
-> 📦 仓库：https://github.com/hjb08432/shiye
+> 🌐 **在线访问**：https://xiaoman0612.github.io/shiye/
+> 📦 仓库：https://github.com/xiaoman0612/shiye
+> 🔁 镜像站：https://hjb08432.github.io/shiye/
 
 输入喜欢的类型、氛围或一句模糊的感觉，从 **网络小说、现实向文学、类型出版** 三条轨道里，找到下一本书；找不到的时候，可以让大模型当场再翻一遍。
 
